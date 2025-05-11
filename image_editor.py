@@ -7,9 +7,10 @@ from kivy.uix.popup import Popup
 from kivy.uix.slider import Slider
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
+from kivy.uix.spinner import Spinner
 from kivy.graphics import Color, Rectangle
 from kivy.core.window import Window
-from PIL import Image as PILImage, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image as PILImage, ImageEnhance, ImageFilter, ImageOps, ImageChops
 import cv2
 import numpy as np
 import io
@@ -25,8 +26,8 @@ class ImageEditor(BoxLayout):
         self.padding = 10
         self.spacing = 10
         
-        # 创建顶部按钮区域（三行）
-        self.button_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=150)
+        # 创建顶部按钮区域（四行）
+        self.button_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=200)
         
         # 第一行按钮 - 基本操作
         self.button_row1 = BoxLayout(size_hint_y=None, height=50)
@@ -47,8 +48,17 @@ class ImageEditor(BoxLayout):
         self.edge_button = Button(text='Edge', on_press=self.apply_edge)
         self.denoise_button = Button(text='Denoise', on_press=self.apply_denoise)
         
-        # 第三行按钮 - 调整和保存
+        # 第三行按钮 - 颜色和调整
         self.button_row3 = BoxLayout(size_hint_y=None, height=50)
+        self.color_button = Button(text='Color', on_press=self.show_color_dialog)
+        self.saturation_button = Button(text='Saturation', on_press=self.show_saturation_dialog)
+        self.sharpness_button = Button(text='Sharpness', on_press=self.show_sharpness_dialog)
+        self.blur_button = Button(text='Blur', on_press=self.show_blur_dialog)
+        self.noise_button = Button(text='Noise', on_press=self.show_noise_dialog)
+        self.vignette_button = Button(text='Vignette', on_press=self.apply_vignette)
+        
+        # 第四行按钮 - 调整和保存
+        self.button_row4 = BoxLayout(size_hint_y=None, height=50)
         self.crop_button = Button(text='Crop', on_press=self.show_crop_dialog)
         self.resize_button = Button(text='Resize', on_press=self.show_resize_dialog)
         self.undo_button = Button(text='Undo', on_press=self.undo)
@@ -67,14 +77,20 @@ class ImageEditor(BoxLayout):
             self.button_row2.add_widget(button)
         
         # 添加按钮到第三行
-        for button in [self.crop_button, self.resize_button, self.undo_button,
-                      self.redo_button, self.save_button]:
+        for button in [self.color_button, self.saturation_button, self.sharpness_button,
+                      self.blur_button, self.noise_button, self.vignette_button]:
             self.button_row3.add_widget(button)
         
-        # 将三行按钮添加到按钮布局
+        # 添加按钮到第四行
+        for button in [self.crop_button, self.resize_button, self.undo_button,
+                      self.redo_button, self.save_button]:
+            self.button_row4.add_widget(button)
+        
+        # 将四行按钮添加到按钮布局
         self.button_layout.add_widget(self.button_row1)
         self.button_layout.add_widget(self.button_row2)
         self.button_layout.add_widget(self.button_row3)
+        self.button_layout.add_widget(self.button_row4)
         
         # 创建图片显示区域
         self.image_widget = Image()
@@ -935,6 +951,532 @@ class ImageEditor(BoxLayout):
     def cv2_to_pil(self, cv2_image):
         """将OpenCV图像转换为PIL格式"""
         return PILImage.fromarray(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
+
+    def show_color_dialog(self, instance):
+        """显示颜色调整对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 颜色调整滑块
+        sliders_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=150)
+        
+        # 红色通道
+        red_layout = BoxLayout(size_hint_y=None, height=50)
+        red_label = Label(text='Red:', size_hint_x=0.3)
+        red_slider = Slider(min=0.0, max=2.0, value=1.0, size_hint_x=0.7)
+        red_layout.add_widget(red_label)
+        red_layout.add_widget(red_slider)
+        
+        # 绿色通道
+        green_layout = BoxLayout(size_hint_y=None, height=50)
+        green_label = Label(text='Green:', size_hint_x=0.3)
+        green_slider = Slider(min=0.0, max=2.0, value=1.0, size_hint_x=0.7)
+        green_layout.add_widget(green_label)
+        green_layout.add_widget(green_slider)
+        
+        # 蓝色通道
+        blue_layout = BoxLayout(size_hint_y=None, height=50)
+        blue_label = Label(text='Blue:', size_hint_x=0.3)
+        blue_slider = Slider(min=0.0, max=2.0, value=1.0, size_hint_x=0.7)
+        blue_layout.add_widget(blue_label)
+        blue_layout.add_widget(blue_slider)
+        
+        sliders_layout.add_widget(red_layout)
+        sliders_layout.add_widget(green_layout)
+        sliders_layout.add_widget(blue_layout)
+        content.add_widget(sliders_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Adjust Colors', content=content, size_hint=(0.8, 0.8))
+        
+        def update_preview(instance, value):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            
+            # 分离通道
+            r, g, b = rgb_image.split()
+            
+            # 调整各个通道
+            r = ImageEnhance.Brightness(r).enhance(red_slider.value)
+            g = ImageEnhance.Brightness(g).enhance(green_slider.value)
+            b = ImageEnhance.Brightness(b).enhance(blue_slider.value)
+            
+            # 合并通道
+            temp_img = PILImage.merge('RGB', (r, g, b))
+            
+            # 更新预览
+            fd, temp_path = tempfile.mkstemp(suffix='.png')
+            os.close(fd)
+            temp_img.save(temp_path, format='PNG')
+            preview.source = temp_path
+            preview.reload()
+            os.unlink(temp_path)
+        
+        def apply_changes(instance):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            
+            # 分离通道
+            r, g, b = rgb_image.split()
+            
+            # 调整各个通道
+            r = ImageEnhance.Brightness(r).enhance(red_slider.value)
+            g = ImageEnhance.Brightness(g).enhance(green_slider.value)
+            b = ImageEnhance.Brightness(b).enhance(blue_slider.value)
+            
+            # 合并通道
+            self.pil_image = PILImage.merge('RGB', (r, g, b))
+            self.update_image_display()
+            popup.dismiss()
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                red_slider.value = 1.0
+                green_slider.value = 1.0
+                blue_slider.value = 1.0
+                self.update_image_display()
+        
+        red_slider.bind(value=update_preview)
+        green_slider.bind(value=update_preview)
+        blue_slider.bind(value=update_preview)
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def show_saturation_dialog(self, instance):
+        """显示饱和度调整对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 饱和度滑块
+        slider_layout = BoxLayout(size_hint_y=None, height=50)
+        slider_label = Label(text='Saturation:', size_hint_x=0.3)
+        saturation_slider = Slider(min=0.0, max=2.0, value=1.0, size_hint_x=0.7)
+        slider_layout.add_widget(slider_label)
+        slider_layout.add_widget(saturation_slider)
+        content.add_widget(slider_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Adjust Saturation', content=content, size_hint=(0.8, 0.8))
+        
+        def update_preview(instance, value):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            enhancer = ImageEnhance.Color(rgb_image)
+            temp_img = enhancer.enhance(value)
+            
+            # 更新预览
+            fd, temp_path = tempfile.mkstemp(suffix='.png')
+            os.close(fd)
+            temp_img.save(temp_path, format='PNG')
+            preview.source = temp_path
+            preview.reload()
+            os.unlink(temp_path)
+        
+        def apply_changes(instance):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            enhancer = ImageEnhance.Color(rgb_image)
+            self.pil_image = enhancer.enhance(saturation_slider.value)
+            self.update_image_display()
+            popup.dismiss()
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                saturation_slider.value = 1.0
+                self.update_image_display()
+        
+        saturation_slider.bind(value=update_preview)
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def show_sharpness_dialog(self, instance):
+        """显示锐化调整对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 锐化滑块
+        slider_layout = BoxLayout(size_hint_y=None, height=50)
+        slider_label = Label(text='Sharpness:', size_hint_x=0.3)
+        sharpness_slider = Slider(min=0.0, max=2.0, value=1.0, size_hint_x=0.7)
+        slider_layout.add_widget(slider_label)
+        slider_layout.add_widget(sharpness_slider)
+        content.add_widget(slider_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Adjust Sharpness', content=content, size_hint=(0.8, 0.8))
+        
+        def update_preview(instance, value):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            enhancer = ImageEnhance.Sharpness(rgb_image)
+            temp_img = enhancer.enhance(value)
+            
+            # 更新预览
+            fd, temp_path = tempfile.mkstemp(suffix='.png')
+            os.close(fd)
+            temp_img.save(temp_path, format='PNG')
+            preview.source = temp_path
+            preview.reload()
+            os.unlink(temp_path)
+        
+        def apply_changes(instance):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图片是RGB模式
+            rgb_image = self.ensure_rgb_mode(self.original_image)
+            enhancer = ImageEnhance.Sharpness(rgb_image)
+            self.pil_image = enhancer.enhance(sharpness_slider.value)
+            self.update_image_display()
+            popup.dismiss()
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                sharpness_slider.value = 1.0
+                self.update_image_display()
+        
+        sharpness_slider.bind(value=update_preview)
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def show_blur_dialog(self, instance):
+        """显示模糊调整对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 模糊类型选择
+        blur_type_layout = BoxLayout(size_hint_y=None, height=50)
+        blur_type_label = Label(text='Blur Type:', size_hint_x=0.3)
+        blur_type_spinner = Spinner(
+            text='Gaussian',
+            values=('Gaussian', 'Box', 'Median'),
+            size_hint_x=0.7
+        )
+        blur_type_layout.add_widget(blur_type_label)
+        blur_type_layout.add_widget(blur_type_spinner)
+        content.add_widget(blur_type_layout)
+        
+        # 模糊强度滑块
+        slider_layout = BoxLayout(size_hint_y=None, height=50)
+        slider_label = Label(text='Intensity:', size_hint_x=0.3)
+        blur_slider = Slider(min=1, max=20, value=1, size_hint_x=0.7)
+        slider_layout.add_widget(slider_label)
+        slider_layout.add_widget(blur_slider)
+        content.add_widget(slider_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Apply Blur', content=content, size_hint=(0.8, 0.8))
+        
+        def update_preview(instance, value):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 转换为OpenCV格式
+            img = self.pil_to_cv2(self.original_image)
+            
+            try:
+                # 应用模糊
+                if blur_type_spinner.text == 'Gaussian':
+                    blurred = cv2.GaussianBlur(img, (0, 0), blur_slider.value)
+                elif blur_type_spinner.text == 'Box':
+                    ksize = int(blur_slider.value * 2 + 1)
+                    blurred = cv2.boxFilter(img, -1, (ksize, ksize))
+                else:  # Median
+                    ksize = int(blur_slider.value * 2 + 1)
+                    # 确保ksize是奇数
+                    ksize = max(3, ksize if ksize % 2 == 1 else ksize + 1)
+                    blurred = cv2.medianBlur(img, ksize)
+                
+                # 转回PIL格式
+                temp_img = self.cv2_to_pil(blurred)
+                
+                # 更新预览
+                fd, temp_path = tempfile.mkstemp(suffix='.png')
+                os.close(fd)
+                temp_img.save(temp_path, format='PNG')
+                preview.source = temp_path
+                preview.reload()
+                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Error applying blur: {e}")
+        
+        def apply_changes(instance):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 转换为OpenCV格式
+            img = self.pil_to_cv2(self.original_image)
+            
+            try:
+                # 应用模糊
+                if blur_type_spinner.text == 'Gaussian':
+                    blurred = cv2.GaussianBlur(img, (0, 0), blur_slider.value)
+                elif blur_type_spinner.text == 'Box':
+                    ksize = int(blur_slider.value * 2 + 1)
+                    blurred = cv2.boxFilter(img, -1, (ksize, ksize))
+                else:  # Median
+                    ksize = int(blur_slider.value * 2 + 1)
+                    # 确保ksize是奇数
+                    ksize = max(3, ksize if ksize % 2 == 1 else ksize + 1)
+                    blurred = cv2.medianBlur(img, ksize)
+                
+                # 转回PIL格式
+                self.pil_image = self.cv2_to_pil(blurred)
+                self.update_image_display()
+                popup.dismiss()
+            except Exception as e:
+                print(f"Error applying blur: {e}")
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                blur_slider.value = 1
+                self.update_image_display()
+        
+        blur_slider.bind(value=update_preview)
+        blur_type_spinner.bind(text=update_preview)
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def show_noise_dialog(self, instance):
+        """显示噪点调整对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 噪点类型选择
+        noise_type_layout = BoxLayout(size_hint_y=None, height=50)
+        noise_type_label = Label(text='Noise Type:', size_hint_x=0.3)
+        noise_type_spinner = Spinner(
+            text='Gaussian',
+            values=('Gaussian', 'Salt & Pepper', 'Speckle'),
+            size_hint_x=0.7
+        )
+        noise_type_layout.add_widget(noise_type_label)
+        noise_type_layout.add_widget(noise_type_spinner)
+        content.add_widget(noise_type_layout)
+        
+        # 噪点强度滑块
+        slider_layout = BoxLayout(size_hint_y=None, height=50)
+        slider_label = Label(text='Intensity:', size_hint_x=0.3)
+        noise_slider = Slider(min=0.0, max=1.0, value=0.1, size_hint_x=0.7)
+        slider_layout.add_widget(slider_label)
+        slider_layout.add_widget(noise_slider)
+        content.add_widget(slider_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Add Noise', content=content, size_hint=(0.8, 0.8))
+        
+        def update_preview(instance, value):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 转换为OpenCV格式
+            img = self.pil_to_cv2(self.original_image)
+            
+            try:
+                # 添加噪点
+                if noise_type_spinner.text == 'Gaussian':
+                    noise = np.random.normal(0, noise_slider.value * 25, img.shape).astype(np.uint8)
+                    noisy = cv2.add(img, noise)
+                elif noise_type_spinner.text == 'Salt & Pepper':
+                    noisy = img.copy()
+                    # 盐噪点
+                    salt = np.random.random(img.shape[:2]) < noise_slider.value / 2
+                    noisy[salt] = 255
+                    # 椒噪点
+                    pepper = np.random.random(img.shape[:2]) < noise_slider.value / 2
+                    noisy[pepper] = 0
+                else:  # Speckle
+                    noise = np.random.normal(0, noise_slider.value, img.shape).astype(np.uint8)
+                    noisy = cv2.add(img, img * noise / 255)
+                
+                # 转回PIL格式
+                temp_img = self.cv2_to_pil(noisy)
+                
+                # 更新预览
+                fd, temp_path = tempfile.mkstemp(suffix='.png')
+                os.close(fd)
+                temp_img.save(temp_path, format='PNG')
+                preview.source = temp_path
+                preview.reload()
+                os.unlink(temp_path)
+            except Exception as e:
+                print(f"Error adding noise: {e}")
+        
+        def apply_changes(instance):
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 转换为OpenCV格式
+            img = self.pil_to_cv2(self.original_image)
+            
+            try:
+                # 添加噪点
+                if noise_type_spinner.text == 'Gaussian':
+                    noise = np.random.normal(0, noise_slider.value * 25, img.shape).astype(np.uint8)
+                    noisy = cv2.add(img, noise)
+                elif noise_type_spinner.text == 'Salt & Pepper':
+                    noisy = img.copy()
+                    # 盐噪点
+                    salt = np.random.random(img.shape[:2]) < noise_slider.value / 2
+                    noisy[salt] = 255
+                    # 椒噪点
+                    pepper = np.random.random(img.shape[:2]) < noise_slider.value / 2
+                    noisy[pepper] = 0
+                else:  # Speckle
+                    noise = np.random.normal(0, noise_slider.value, img.shape).astype(np.uint8)
+                    noisy = cv2.add(img, img * noise / 255)
+                
+                # 转回PIL格式
+                self.pil_image = self.cv2_to_pil(noisy)
+                self.update_image_display()
+                popup.dismiss()
+            except Exception as e:
+                print(f"Error adding noise: {e}")
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                noise_slider.value = 0.1
+                self.update_image_display()
+        
+        noise_slider.bind(value=update_preview)
+        noise_type_spinner.bind(text=update_preview)
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def apply_vignette(self, instance):
+        """应用晕影效果"""
+        if not self.pil_image:
+            return
+            
+        self.save_state()
+        # 转换为OpenCV格式
+        img = self.pil_to_cv2(self.pil_image)
+        
+        # 创建晕影遮罩
+        rows, cols = img.shape[:2]
+        kernel_x = cv2.getGaussianKernel(cols, cols/4)
+        kernel_y = cv2.getGaussianKernel(rows, rows/4)
+        kernel = kernel_y * kernel_x.T
+        mask = kernel / kernel.max()
+        
+        # 应用晕影效果
+        vignette = img.copy()
+        for i in range(3):
+            vignette[:,:,i] = vignette[:,:,i] * mask
+        
+        # 转回PIL格式
+        self.pil_image = self.cv2_to_pil(vignette)
+        self.update_image_display()
 
     def __del__(self):
         # 清理临时文件
