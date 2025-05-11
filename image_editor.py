@@ -9,11 +9,12 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.graphics import Color, Rectangle
 from kivy.core.window import Window
-from PIL import Image as PILImage, ImageEnhance
+from PIL import Image as PILImage, ImageEnhance, ImageFilter
 import io
 import tempfile
 import os
 from datetime import datetime
+from collections import deque
 
 class ImageEditor(BoxLayout):
     def __init__(self, **kwargs):
@@ -22,22 +23,42 @@ class ImageEditor(BoxLayout):
         self.padding = 10
         self.spacing = 10
         
-        # 创建顶部按钮区域
-        self.button_layout = BoxLayout(size_hint_y=None, height=50)
+        # 创建顶部按钮区域（两行）
+        self.button_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=100)
+        
+        # 第一行按钮
+        self.button_row1 = BoxLayout(size_hint_y=None, height=50)
         self.load_button = Button(text='Load Image', on_press=self.show_file_chooser)
         self.rotate_button = Button(text='Rotate', on_press=self.rotate_image)
+        self.flip_h_button = Button(text='Flip H', on_press=self.flip_horizontal)
+        self.flip_v_button = Button(text='Flip V', on_press=self.flip_vertical)
         self.grayscale_button = Button(text='Grayscale', on_press=self.grayscale_image)
         self.brightness_button = Button(text='Brightness', on_press=self.show_brightness_dialog)
         self.contrast_button = Button(text='Contrast', on_press=self.show_contrast_dialog)
+        
+        # 第二行按钮
+        self.button_row2 = BoxLayout(size_hint_y=None, height=50)
+        self.filter_button = Button(text='Filters', on_press=self.show_filter_dialog)
         self.crop_button = Button(text='Crop', on_press=self.show_crop_dialog)
         self.resize_button = Button(text='Resize', on_press=self.show_resize_dialog)
+        self.undo_button = Button(text='Undo', on_press=self.undo)
+        self.redo_button = Button(text='Redo', on_press=self.redo)
         self.save_button = Button(text='Save Image', on_press=self.show_save_dialog)
         
-        # 添加按钮到布局
-        for button in [self.load_button, self.rotate_button, self.grayscale_button,
-                      self.brightness_button, self.contrast_button, self.crop_button,
-                      self.resize_button, self.save_button]:
-            self.button_layout.add_widget(button)
+        # 添加按钮到第一行
+        for button in [self.load_button, self.rotate_button, self.flip_h_button, 
+                      self.flip_v_button, self.grayscale_button, self.brightness_button,
+                      self.contrast_button]:
+            self.button_row1.add_widget(button)
+        
+        # 添加按钮到第二行
+        for button in [self.filter_button, self.crop_button, self.resize_button,
+                      self.undo_button, self.redo_button, self.save_button]:
+            self.button_row2.add_widget(button)
+        
+        # 将两行按钮添加到按钮布局
+        self.button_layout.add_widget(self.button_row1)
+        self.button_layout.add_widget(self.button_row2)
         
         # 创建图片显示区域
         self.image_widget = Image()
@@ -51,6 +72,194 @@ class ImageEditor(BoxLayout):
         self.temp_file = None
         self.preview_temp_file = None
         self.original_image = None  # 保存原始图片用于重置
+        
+        # 初始化撤销/重做栈
+        self.undo_stack = deque(maxlen=10)  # 最多保存10步操作
+        self.redo_stack = deque(maxlen=10)
+        self.update_undo_redo_buttons()
+
+    def update_undo_redo_buttons(self):
+        """更新撤销/重做按钮状态"""
+        self.undo_button.disabled = len(self.undo_stack) == 0
+        self.redo_button.disabled = len(self.redo_stack) == 0
+
+    def save_state(self):
+        """保存当前状态到撤销栈"""
+        if self.pil_image:
+            self.undo_stack.append(self.pil_image.copy())
+            self.redo_stack.clear()  # 清空重做栈
+            self.update_undo_redo_buttons()
+
+    def undo(self, instance):
+        """撤销上一步操作"""
+        if self.undo_stack:
+            if self.pil_image:
+                self.redo_stack.append(self.pil_image.copy())
+            self.pil_image = self.undo_stack.pop()
+            self.update_image_display()
+            self.update_undo_redo_buttons()
+
+    def redo(self, instance):
+        """重做上一步操作"""
+        if self.redo_stack:
+            if self.pil_image:
+                self.undo_stack.append(self.pil_image.copy())
+            self.pil_image = self.redo_stack.pop()
+            self.update_image_display()
+            self.update_undo_redo_buttons()
+
+    def flip_horizontal(self, instance):
+        """水平翻转图像"""
+        if self.pil_image:
+            self.save_state()
+            self.pil_image = self.pil_image.transpose(PILImage.FLIP_LEFT_RIGHT)
+            self.update_image_display()
+
+    def flip_vertical(self, instance):
+        """垂直翻转图像"""
+        if self.pil_image:
+            self.save_state()
+            self.pil_image = self.pil_image.transpose(PILImage.FLIP_TOP_BOTTOM)
+            self.update_image_display()
+
+    def show_filter_dialog(self, instance):
+        """显示滤镜对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 滤镜按钮区域
+        filters_layout = BoxLayout(size_hint_y=None, height=50)
+        blur_button = Button(text='Blur')
+        sharpen_button = Button(text='Sharpen')
+        edge_button = Button(text='Edge')
+        emboss_button = Button(text='Emboss')
+        
+        filters_layout.add_widget(blur_button)
+        filters_layout.add_widget(sharpen_button)
+        filters_layout.add_widget(edge_button)
+        filters_layout.add_widget(emboss_button)
+        content.add_widget(filters_layout)
+        
+        # 已应用滤镜列表
+        applied_filters_label = Label(text='Applied Filters: None', size_hint_y=None, height=30)
+        content.add_widget(applied_filters_label)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        clear_filters_button = Button(text='Clear Filters')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(clear_filters_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Apply Filter', content=content, size_hint=(0.8, 0.8))
+        
+        # 保存当前滤镜状态
+        applied_filters = []
+        filtered_image = None
+        
+        def update_filter_label():
+            """更新已应用滤镜的标签"""
+            if applied_filters:
+                applied_filters_label.text = 'Applied Filters: ' + ', '.join(applied_filters)
+            else:
+                applied_filters_label.text = 'Applied Filters: None'
+        
+        def apply_filter(filter_type):
+            nonlocal filtered_image
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            # 确保图像是RGB模式
+            temp_img = self.ensure_rgb_mode(self.original_image.copy())
+            
+            try:
+                # 应用所有已保存的滤镜
+                for f in applied_filters:
+                    if f == 'blur':
+                        temp_img = temp_img.filter(ImageFilter.BLUR)
+                    elif f == 'sharpen':
+                        temp_img = temp_img.filter(ImageFilter.SHARPEN)
+                    elif f == 'edge':
+                        temp_img = temp_img.filter(ImageFilter.FIND_EDGES)
+                    elif f == 'emboss':
+                        temp_img = temp_img.filter(ImageFilter.EMBOSS)
+                
+                # 应用新滤镜
+                if filter_type == 'blur':
+                    temp_img = temp_img.filter(ImageFilter.BLUR)
+                elif filter_type == 'sharpen':
+                    temp_img = temp_img.filter(ImageFilter.SHARPEN)
+                elif filter_type == 'edge':
+                    temp_img = temp_img.filter(ImageFilter.FIND_EDGES)
+                elif filter_type == 'emboss':
+                    temp_img = temp_img.filter(ImageFilter.EMBOSS)
+                
+                # 保存新滤镜
+                applied_filters.append(filter_type)
+                filtered_image = temp_img
+                
+                # 更新预览
+                fd, temp_path = tempfile.mkstemp(suffix='.png')
+                os.close(fd)
+                filtered_image.save(temp_path, format='PNG')
+                preview.source = temp_path
+                preview.reload()
+                os.unlink(temp_path)
+                
+                # 更新滤镜标签
+                update_filter_label()
+                
+            except Exception as e:
+                print(f"Error applying filter: {e}")
+        
+        def clear_filters(instance):
+            nonlocal filtered_image, applied_filters
+            applied_filters.clear()
+            filtered_image = None
+            update_filter_label()
+            # 重置预览
+            preview.source = self.temp_file
+            preview.reload()
+        
+        def apply_changes(instance):
+            nonlocal filtered_image
+            if filtered_image:
+                self.save_state()
+                self.pil_image = filtered_image
+                self.update_image_display()
+            popup.dismiss()
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                self.update_image_display()
+                # 重置预览
+                preview.source = self.temp_file
+                preview.reload()
+        
+        # 绑定滤镜按钮事件
+        blur_button.bind(on_press=lambda x: apply_filter('blur'))
+        sharpen_button.bind(on_press=lambda x: apply_filter('sharpen'))
+        edge_button.bind(on_press=lambda x: apply_filter('edge'))
+        emboss_button.bind(on_press=lambda x: apply_filter('emboss'))
+        
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        clear_filters_button.bind(on_press=clear_filters)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
 
     def ensure_rgb_mode(self, image):
         """确保图片是RGB模式"""
@@ -214,11 +423,13 @@ class ImageEditor(BoxLayout):
 
     def rotate_image(self, instance):
         if self.pil_image:
+            self.save_state()
             self.pil_image = self.pil_image.rotate(90, expand=True)
             self.update_image_display()
 
     def grayscale_image(self, instance):
         if self.pil_image:
+            self.save_state()
             self.pil_image = self.pil_image.convert('L')
             self.update_image_display()
 

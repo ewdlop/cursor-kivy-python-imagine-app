@@ -7,13 +7,21 @@ A simple 2D image editor developed using Python and Kivy.
 - Load images from file system
 - Basic image operations:
   - Rotate images
+  - Flip horizontally/vertically
   - Convert to grayscale
 - Advanced image adjustments:
   - Brightness adjustment (0.0 - 2.0)
   - Contrast adjustment (0.0 - 2.0)
+- Image filters:
+  - Blur
+  - Sharpen
+  - Edge detection
+  - Emboss
 - Image manipulation:
   - Crop with precise coordinates
   - Resize with aspect ratio preservation
+- History management:
+  - Undo/Redo support (up to 10 steps)
 - Preview functionality:
   - Real-time preview for all adjustments
   - Image preview in file selection
@@ -44,7 +52,9 @@ python image_editor.py
 ### Basic Operations
 1. Click "Load Image" to select an image to edit
 2. Use "Rotate" to rotate the image 90 degrees clockwise
-3. Use "Grayscale" to convert the image to grayscale
+3. Use "Flip H" to flip the image horizontally
+4. Use "Flip V" to flip the image vertically
+5. Use "Grayscale" to convert the image to grayscale
 
 ### Image Adjustments
 1. Brightness:
@@ -59,6 +69,16 @@ python image_editor.py
    - Preview changes in real-time
    - Click "Apply" to confirm or "Reset" to revert
 
+### Image Filters
+1. Click "Filters" button
+2. Choose from available filters:
+   - Blur: Softens the image
+   - Sharpen: Enhances image details
+   - Edge: Detects and highlights edges
+   - Emboss: Creates an embossed effect
+3. Preview the effect in real-time
+4. Click "Apply" to confirm or "Reset" to revert
+
 ### Image Manipulation
 1. Crop:
    - Click "Crop" button
@@ -71,6 +91,11 @@ python image_editor.py
    - Enter desired width and height
    - Toggle "Maintain aspect ratio" if needed
    - Click "Apply" to confirm
+
+### History Management
+- Use "Undo" button to revert the last operation
+- Use "Redo" button to reapply a previously undone operation
+- Up to 10 operations can be undone/redone
 
 ### Saving
 1. Click "Save Image" button
@@ -85,9 +110,11 @@ python image_editor.py
 - All adjustments can be previewed before applying
 - Original image is preserved until changes are applied
 - Temporary files are automatically cleaned up
+- History is limited to the last 10 operations
 
 ## Troubleshooting
 
 - If image adjustments don't work, ensure the image is in a compatible format
 - For large images, some operations might be slower
-- Make sure you have sufficient disk space for temporary files 
+- Make sure you have sufficient disk space for temporary files
+- If undo/redo doesn't work, try saving your work and reloading the image 
