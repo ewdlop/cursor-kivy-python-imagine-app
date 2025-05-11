@@ -9,7 +9,9 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.graphics import Color, Rectangle
 from kivy.core.window import Window
-from PIL import Image as PILImage, ImageEnhance, ImageFilter
+from PIL import Image as PILImage, ImageEnhance, ImageFilter, ImageOps
+import cv2
+import numpy as np
 import io
 import tempfile
 import os
@@ -23,10 +25,10 @@ class ImageEditor(BoxLayout):
         self.padding = 10
         self.spacing = 10
         
-        # 创建顶部按钮区域（两行）
-        self.button_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=100)
+        # 创建顶部按钮区域（三行）
+        self.button_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=150)
         
-        # 第一行按钮
+        # 第一行按钮 - 基本操作
         self.button_row1 = BoxLayout(size_hint_y=None, height=50)
         self.load_button = Button(text='Load Image', on_press=self.show_file_chooser)
         self.rotate_button = Button(text='Rotate', on_press=self.rotate_image)
@@ -36,9 +38,17 @@ class ImageEditor(BoxLayout):
         self.brightness_button = Button(text='Brightness', on_press=self.show_brightness_dialog)
         self.contrast_button = Button(text='Contrast', on_press=self.show_contrast_dialog)
         
-        # 第二行按钮
+        # 第二行按钮 - 滤镜和效果
         self.button_row2 = BoxLayout(size_hint_y=None, height=50)
         self.filter_button = Button(text='Filters', on_press=self.show_filter_dialog)
+        self.effects_button = Button(text='Effects', on_press=self.show_effects_dialog)
+        self.cartoon_button = Button(text='Cartoon', on_press=self.apply_cartoon)
+        self.sketch_button = Button(text='Sketch', on_press=self.apply_sketch)
+        self.edge_button = Button(text='Edge', on_press=self.apply_edge)
+        self.denoise_button = Button(text='Denoise', on_press=self.apply_denoise)
+        
+        # 第三行按钮 - 调整和保存
+        self.button_row3 = BoxLayout(size_hint_y=None, height=50)
         self.crop_button = Button(text='Crop', on_press=self.show_crop_dialog)
         self.resize_button = Button(text='Resize', on_press=self.show_resize_dialog)
         self.undo_button = Button(text='Undo', on_press=self.undo)
@@ -52,13 +62,19 @@ class ImageEditor(BoxLayout):
             self.button_row1.add_widget(button)
         
         # 添加按钮到第二行
-        for button in [self.filter_button, self.crop_button, self.resize_button,
-                      self.undo_button, self.redo_button, self.save_button]:
+        for button in [self.filter_button, self.effects_button, self.cartoon_button,
+                      self.sketch_button, self.edge_button, self.denoise_button]:
             self.button_row2.add_widget(button)
         
-        # 将两行按钮添加到按钮布局
+        # 添加按钮到第三行
+        for button in [self.crop_button, self.resize_button, self.undo_button,
+                      self.redo_button, self.save_button]:
+            self.button_row3.add_widget(button)
+        
+        # 将三行按钮添加到按钮布局
         self.button_layout.add_widget(self.button_row1)
         self.button_layout.add_widget(self.button_row2)
+        self.button_layout.add_widget(self.button_row3)
         
         # 创建图片显示区域
         self.image_widget = Image()
@@ -734,6 +750,191 @@ class ImageEditor(BoxLayout):
         apply_button.bind(on_press=apply_resize)
         cancel_button.bind(on_press=popup.dismiss)
         popup.open()
+
+    def apply_cartoon(self, instance):
+        """应用卡通效果"""
+        if not self.pil_image:
+            return
+            
+        self.save_state()
+        # 转换为OpenCV格式
+        img = self.pil_to_cv2(self.pil_image)
+        
+        # 应用卡通效果
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.medianBlur(gray, 5)
+        edges = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                    cv2.THRESH_BINARY, 9, 9)
+        color = cv2.bilateralFilter(img, 9, 300, 300)
+        cartoon = cv2.bitwise_and(color, color, mask=edges)
+        
+        # 转回PIL格式
+        self.pil_image = self.cv2_to_pil(cartoon)
+        self.update_image_display()
+
+    def apply_sketch(self, instance):
+        """应用素描效果"""
+        if not self.pil_image:
+            return
+            
+        self.save_state()
+        # 转换为OpenCV格式
+        img = self.pil_to_cv2(self.pil_image)
+        
+        # 应用素描效果
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        inv = 255 - gray
+        blur = cv2.GaussianBlur(inv, (21, 21), 0)
+        sketch = cv2.divide(gray, 255 - blur, scale=256)
+        
+        # 转回PIL格式
+        self.pil_image = self.cv2_to_pil(cv2.cvtColor(sketch, cv2.COLOR_GRAY2BGR))
+        self.update_image_display()
+
+    def apply_edge(self, instance):
+        """应用边缘检测"""
+        if not self.pil_image:
+            return
+            
+        self.save_state()
+        # 转换为OpenCV格式
+        img = self.pil_to_cv2(self.pil_image)
+        
+        # 应用边缘检测
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 100, 200)
+        
+        # 转回PIL格式
+        self.pil_image = self.cv2_to_pil(cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR))
+        self.update_image_display()
+
+    def apply_denoise(self, instance):
+        """应用降噪"""
+        if not self.pil_image:
+            return
+            
+        self.save_state()
+        # 转换为OpenCV格式
+        img = self.pil_to_cv2(self.pil_image)
+        
+        # 应用降噪
+        denoised = cv2.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
+        
+        # 转回PIL格式
+        self.pil_image = self.cv2_to_pil(denoised)
+        self.update_image_display()
+
+    def show_effects_dialog(self, instance):
+        """显示特效对话框"""
+        if not self.pil_image:
+            return
+            
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        # 预览区域
+        preview = Image(source=self.temp_file)
+        content.add_widget(preview)
+        
+        # 特效按钮区域
+        effects_layout = BoxLayout(size_hint_y=None, height=50)
+        sepia_button = Button(text='Sepia')
+        invert_button = Button(text='Invert')
+        emboss_button = Button(text='Emboss')
+        contour_button = Button(text='Contour')
+        
+        effects_layout.add_widget(sepia_button)
+        effects_layout.add_widget(invert_button)
+        effects_layout.add_widget(emboss_button)
+        effects_layout.add_widget(contour_button)
+        content.add_widget(effects_layout)
+        
+        # 按钮区域
+        buttons = BoxLayout(size_hint_y=None, height=50)
+        cancel_button = Button(text='Cancel')
+        apply_button = Button(text='Apply')
+        reset_button = Button(text='Reset')
+        
+        buttons.add_widget(cancel_button)
+        buttons.add_widget(reset_button)
+        buttons.add_widget(apply_button)
+        content.add_widget(buttons)
+        
+        popup = Popup(title='Apply Effects', content=content, size_hint=(0.8, 0.8))
+        
+        # 保存当前效果状态
+        current_effect = None
+        current_effect_image = None
+        
+        def apply_effect(effect_type):
+            nonlocal current_effect, current_effect_image
+            if not self.original_image:
+                self.original_image = self.pil_image.copy()
+            
+            temp_img = self.original_image.copy()
+            
+            try:
+                if effect_type == 'sepia':
+                    # 应用棕褐色效果
+                    temp_img = ImageOps.colorize(temp_img.convert('L'), '#704214', '#C0A080')
+                elif effect_type == 'invert':
+                    # 应用反色效果
+                    temp_img = ImageOps.invert(temp_img)
+                elif effect_type == 'emboss':
+                    # 应用浮雕效果
+                    temp_img = temp_img.filter(ImageFilter.EMBOSS)
+                elif effect_type == 'contour':
+                    # 应用轮廓效果
+                    temp_img = temp_img.filter(ImageFilter.CONTOUR)
+                
+                # 保存当前效果
+                current_effect = effect_type
+                current_effect_image = temp_img
+                
+                # 更新预览
+                fd, temp_path = tempfile.mkstemp(suffix='.png')
+                os.close(fd)
+                temp_img.save(temp_path, format='PNG')
+                preview.source = temp_path
+                preview.reload()
+                os.unlink(temp_path)
+                
+            except Exception as e:
+                print(f"Error applying effect: {e}")
+        
+        def apply_changes(instance):
+            nonlocal current_effect_image
+            if current_effect_image:
+                self.save_state()
+                self.pil_image = current_effect_image
+                self.update_image_display()
+            popup.dismiss()
+        
+        def reset_changes(instance):
+            if self.original_image:
+                self.pil_image = self.original_image.copy()
+                self.update_image_display()
+                # 重置预览
+                preview.source = self.temp_file
+                preview.reload()
+        
+        # 绑定特效按钮事件
+        sepia_button.bind(on_press=lambda x: apply_effect('sepia'))
+        invert_button.bind(on_press=lambda x: apply_effect('invert'))
+        emboss_button.bind(on_press=lambda x: apply_effect('emboss'))
+        contour_button.bind(on_press=lambda x: apply_effect('contour'))
+        
+        apply_button.bind(on_press=apply_changes)
+        reset_button.bind(on_press=reset_changes)
+        cancel_button.bind(on_press=popup.dismiss)
+        popup.open()
+
+    def pil_to_cv2(self, pil_image):
+        """将PIL图像转换为OpenCV格式"""
+        return cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+    def cv2_to_pil(self, cv2_image):
+        """将OpenCV图像转换为PIL格式"""
+        return PILImage.fromarray(cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB))
 
     def __del__(self):
         # 清理临时文件
